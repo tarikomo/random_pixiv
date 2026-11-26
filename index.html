@@ -10,13 +10,6 @@
       background: #eeeeee;
       color: #000000;
       margin: 2rem;
-      line-height: 1.6;
-    }
-    .panel {
-      background: #ffffff;
-      border: 2px solid #000000;
-      padding: 1rem;
-      max-width: 540px;
     }
     button {
       font-family: inherit;
@@ -37,17 +30,13 @@
   </style>
 </head>
 <body>
-  <div class="panel">
-    <h1>Random Pixiv Artwork</h1>
-    <p>1〜152520933 の中からランダムな作品IDへ移動します。</p>
-    <button id="go" type="button">ランダムに開く</button>
-    <p id="status"></p>
-  </div>
+  <h1>Random Pixiv Artwork</h1>
+  <p>1〜152520933 の中からランダムな作品IDへ移動します。</p>
+  <button id="go" type="button">ランダムに開く</button>
+  <p id="status"></p>
 
   <script>
     const MAX_ID = 152520933;
-    const statusEl = document.getElementById('status');
-
     function getRandomArtworkUrl() {
       const id = Math.floor(Math.random() * MAX_ID) + 1;
       return `https://www.pixiv.net/artworks/${id}`;
@@ -55,7 +44,7 @@
 
     document.getElementById('go').addEventListener('click', () => {
       const url = getRandomArtworkUrl();
-      statusEl.innerHTML =
+      document.getElementById('status').innerHTML =
         `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
       window.open(url, '_blank', 'noopener,noreferrer');
     });
