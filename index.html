@@ -16,22 +16,7 @@
       background: #ffffff;
       border: 2px solid #000000;
       padding: 1rem;
-      max-width: 560px;
-    }
-    .mode-box {
-      margin: 1rem 0;
-      padding: 0.75rem;
-      background: #eeeeee;
-      border: 1px solid #000000;
-    }
-    .mode-box.r18-active {
-      border-color: #ff0000;
-      color: #ff0000;
-    }
-    .mode-box label {
-      display: block;
-      margin: 0.25rem 0;
-      cursor: pointer;
+      max-width: 540px;
     }
     button {
       font-family: inherit;
@@ -49,90 +34,19 @@
     a {
       color: #0000ee;
     }
-    .note {
-      font-size: 0.85rem;
-      margin-top: 1rem;
-    }
   </style>
 </head>
 <body>
   <div class="panel">
     <h1>Random Pixiv Artwork</h1>
     <p>1〜152520933 の中からランダムな作品IDへ移動します。</p>
-
-    <div id="modeBox" class="mode-box">
-      <div><strong>閲覧モード（現在: <span id="modeText">全年齢のみ</span>）</strong></div>
-      <label>
-        <input type="radio" name="mode" value="safe" checked>
-        全年齢のみ（初期状態）
-      </label>
-      <label>
-        <input type="radio" name="mode" value="include_r18">
-        R-18を含む
-      </label>
-      <label>
-        <input type="radio" name="mode" value="r18_only">
-        R-18のみ
-      </label>
-    </div>
-
     <button id="go" type="button">ランダムに開く</button>
     <p id="status"></p>
-
-    <p class="note">
-      ※ランダムID生成からR-18作品を自動判別・抽出することはできないため、どのモードを選んでも生成されるURLはランダムなIDになります。実際の表示可否はPixiv側のログイン状態および閲覧制限設定に依存します。
-    </p>
   </div>
 
   <script>
     const MAX_ID = 152520933;
-    const modeInputs = Array.from(document.querySelectorAll('input[name="mode"]'));
-    const modeBox = document.getElementById('modeBox');
-    const modeText = document.getElementById('modeText');
     const statusEl = document.getElementById('status');
-
-    let currentMode = 'safe';
-
-    const MODE_LABELS = {
-      safe: '全年齢のみ',
-      include_r18: 'R-18を含む',
-      r18_only: 'R-18のみ'
-    };
-
-    function applyMode(mode) {
-      currentMode = mode;
-      modeText.textContent = MODE_LABELS[mode];
-      modeInputs.forEach((input) => {
-        input.checked = input.value === mode;
-      });
-      if (mode === 'r18_only' || mode === 'include_r18') {
-        modeBox.classList.add('r18-active');
-      } else {
-        modeBox.classList.remove('r18-active');
-      }
-    }
-
-    modeInputs.forEach((input) => {
-      input.addEventListener('change', () => {
-        const selected = input.value;
-        if (selected === 'safe') {
-          applyMode('safe');
-          return;
-        }
-
-        const promptMessage =
-          selected === 'r18_only'
-            ? '「R-18のみ」モードに切り替えます。あなたは18歳以上であり、R-18作品の表示に同意しますか？'
-            : '「R-18を含む」モードに切り替えます。あなたは18歳以上であり、R-18作品の表示に同意しますか？';
-
-        const confirmed = window.confirm(promptMessage);
-        if (!confirmed) {
-          applyMode(currentMode);
-          return;
-        }
-        applyMode(selected);
-      });
-    });
 
     function getRandomArtworkUrl() {
       const id = Math.floor(Math.random() * MAX_ID) + 1;
@@ -142,7 +56,7 @@
     document.getElementById('go').addEventListener('click', () => {
       const url = getRandomArtworkUrl();
       statusEl.innerHTML =
-        `[${MODE_LABELS[currentMode]}] 遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+        `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
       window.open(url, '_blank', 'noopener,noreferrer');
     });
   </script>
