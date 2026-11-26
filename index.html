@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Random Pixiv Artwork</title>
+  <style>
+    body {
+      font-family: monospace, sans-serif;
+      background: #eeeeee;
+      color: #000000;
+      margin: 2rem;
+    }
+    button {
+      font-family: inherit;
+      font-size: 1rem;
+      padding: 0.6rem 1.2rem;
+      background: #ffffff;
+      color: #000000;
+      border: 2px solid #000000;
+      cursor: pointer;
+    }
+    button:hover {
+      background: #0000ff;
+      color: #ffffff;
+    }
+    a {
+      color: #0000ee;
+    }
+  </style>
+</head>
+<body>
+  <h1>Random Pixiv Artwork</h1>
+  <p>1〜152520933 の中からランダムな作品IDへ移動します。</p>
+  <button id="go" type="button">ランダムに開く</button>
+  <p id="status"></p>
+
+  <script>
+    const MAX_ID = 152520933;
+    function getRandomArtworkUrl() {
+      const id = Math.floor(Math.random() * MAX_ID) + 1;
+      return `https://www.pixiv.net/artworks/${id}`;
+    }
+
+    document.getElementById('go').addEventListener('click', () => {
+      const url = getRandomArtworkUrl();
+      document.getElementById('status').innerHTML =
+        `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+      window.open(url, '_blank', 'noopener,noreferrer');
+    });
+  </script>
+</body>
+</html>
