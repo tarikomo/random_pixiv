@@ -74,6 +74,10 @@
       font-size: 0.85rem;
       color: #666666;
     }
+    .warn {
+      font-size: 0.85rem;
+      color: #cc6600;
+    }
   </style>
 </head>
 <body>
@@ -95,8 +99,7 @@
     </label>
   </div>
   <p class="note">
-    ※ フィルター機能はPixiv APIの公開情報を使用しています。ログイン状態によっては
-    R-18作品が表示されない場合があります。
+    ※ フィルター機能はPixiv APIを使用しています。ログイン状態によってはR-18作品が表示されない場合があります。
   </p>
 
   <button id="go" type="button">ランダムに開く</button>
@@ -105,6 +108,7 @@
   <script>
     const MAX_ID = 152520933;
     const MAX_RETRY = 20;
+    const WORKER_URL = 'https://pixiv-proxy.tarikomo289.workers.dev';
 
     function getRandomId() {
       return Math.floor(Math.random() * MAX_ID) + 1;
@@ -115,30 +119,27 @@
     }
 
     /**
-     * Pixivの公開APIで作品情報を取得する。
-     * CORSの制約でクライアント側から直接は叩けないため、
-     * allorigins.win プロキシ経由でリクエストする。
-     * 返り値: { ok: boolean, x_restrict: number|null }
-     *   x_restrict: 0=全年齢, 1=R-18, 2=R-18G
+     * Workerを通じてPixiv API情報を取得する
+     * 返り値: { ok, reason?, xRestrict? }
+     *   ok=true  → 作品が存在し、xRestrict(0=全年齢, 1=R-18, 2=R-18G)が分かった
+     *   ok=false, reason='not_found' → 作品が削除済み・非公開と確認できた
+     *   ok=false, reason='api_error' → APIが利用できない（判定不能）
      */
-    const WORKER_URL = 'https://pixiv-proxy.tarikomo289.workers.dev';
-
     async function fetchArtworkInfo(id) {
       try {
-        const res = await fetch(`${WORKER_URL}?id=${id}`, { signal: AbortSignal.timeout(8000) });
-        if (!res.ok) return { ok: false, x_restrict: null };
+        const res = await fetch(`${WORKER_URL}?id=${id}`, {
+          signal: AbortSignal.timeout(8000)
+        });
         const data = await res.json();
-        if (data.error || !data.body) return { ok: false, x_restrict: null };
-        return { ok: true, x_restrict: data.body.xRestrict ?? 0 };
+        return data;
       } catch {
-        return { ok: false, x_restrict: null };
+        return { ok: false, reason: 'api_error' };
       }
     }
 
     async function findArtwork(ageFilter, skipUnavailable) {
       const btn = document.getElementById('go');
       const statusEl = document.getElementById('status');
-
       btn.disabled = true;
 
       // フィルターなし・チェックなしの場合は即開く
@@ -154,6 +155,8 @@
 
       statusEl.innerHTML = '<span class="retry-info">🔍 条件に合う作品を検索中...</span>';
 
+      let apiFailCount = 0;
+
       for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
         const id = getRandomId();
         statusEl.innerHTML =
@@ -161,24 +164,40 @@
 
         const info = await fetchArtworkInfo(id);
 
-        // 削除済み・非公開チェック
-        if (skipUnavailable && !info.ok) {
+        // APIが応答できない場合（WorkerやPixivのエラー）
+        if (!info.ok && info.reason === 'api_error') {
+          apiFailCount++;
+
+          if (ageFilter === 'all') {
+            // 年齢フィルターなし・API不可なら「スキップしない」→そのまま開く
+            const url = getArtworkUrl(id);
+            statusEl.innerHTML =
+              `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>` +
+              `<br><span class="warn">⚠ API利用不可のため削除済み・非公開チェックをスキップしました</span>`;
+            window.open(url, '_blank', 'noopener,noreferrer');
+            btn.disabled = false;
+            return;
+          } else {
+            // 年齢フィルターあり・API不可 → スキップ（判定できないため）
+            continue;
+          }
+        }
+
+        // 削除済み・非公開と確認できた場合のみスキップ
+        if (skipUnavailable && !info.ok && info.reason === 'not_found') {
           continue;
         }
 
-        // 年齢フィルターチェック
-        if (info.ok) {
-          if (ageFilter === 'general' && info.x_restrict !== 0) continue;
-          if (ageFilter === 'r18' && info.x_restrict === 0) continue;
-        } else if (ageFilter !== 'all') {
-          // APIが取れない場合は年齢フィルターを適用できないのでスキップ
-          continue;
+        // 年齢フィルターチェック（APIが成功した場合のみ適用）
+        if (info.ok && ageFilter !== 'all') {
+          if (ageFilter === 'general' && info.xRestrict !== 0) continue;
+          if (ageFilter === 'r18' && info.xRestrict === 0) continue;
         }
 
-        // 条件クリア
+        // 条件クリア → 開く
         const url = getArtworkUrl(id);
-        const label = info.x_restrict === 1 ? ' [R-18]'
-                    : info.x_restrict === 2 ? ' [R-18G]'
+        const label = info.xRestrict === 1 ? ' [R-18]'
+                    : info.xRestrict === 2 ? ' [R-18G]'
                     : info.ok ? ' [全年齢]' : '';
         statusEl.innerHTML =
           `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${label}`;
@@ -187,10 +206,13 @@
         return;
       }
 
-      // MAX_RETRY回試しても見つからなかった場合
+      // MAX_RETRY回試しても見つからなかった
+      const apiMsg = apiFailCount === MAX_RETRY
+        ? '<br>（Pixiv APIに接続できませんでした。フィルターを「全て表示」にすると即開けます）'
+        : '';
       statusEl.innerHTML =
-        `<span style="color:#cc0000;">⚠ ${MAX_RETRY}回試しましたが条件に合う作品が見つかりませんでした。<br>` +
-        `フィルターを緩めるか、再度お試しください。</span>`;
+        `<span style="color:#cc0000;">⚠ ${MAX_RETRY}回試しましたが条件に合う作品が見つかりませんでした。` +
+        `フィルターを緩めるか、再度お試しください。${apiMsg}</span>`;
       btn.disabled = false;
     }
 
