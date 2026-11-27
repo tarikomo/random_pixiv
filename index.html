@@ -11,6 +11,36 @@
       color: #000000;
       margin: 2rem;
     }
+    h1 {
+      margin-bottom: 0.5rem;
+    }
+    .options {
+      margin: 1rem 0;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+    .options label {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.95rem;
+    }
+    select {
+      font-family: inherit;
+      font-size: 0.95rem;
+      padding: 0.3rem 0.5rem;
+      background: #ffffff;
+      color: #000000;
+      border: 2px solid #000000;
+      cursor: pointer;
+    }
+    input[type="checkbox"] {
+      width: 1rem;
+      height: 1rem;
+      cursor: pointer;
+      accent-color: #0000ff;
+    }
     button {
       font-family: inherit;
       font-size: 1rem;
@@ -20,33 +50,154 @@
       border: 2px solid #000000;
       cursor: pointer;
     }
-    button:hover {
+    button:hover:not(:disabled) {
       background: #0000ff;
       color: #ffffff;
     }
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
     a {
       color: #0000ee;
+    }
+    #status {
+      margin-top: 0.8rem;
+      min-height: 1.5rem;
+    }
+    .note {
+      font-size: 0.8rem;
+      color: #555555;
+      margin-top: 0.3rem;
+    }
+    .retry-info {
+      font-size: 0.85rem;
+      color: #666666;
     }
   </style>
 </head>
 <body>
   <h1>Random Pixiv Artwork</h1>
   <p>1〜152520933 の中からランダムな作品IDへ移動します。</p>
+
+  <div class="options">
+    <label>
+      <span>年齢制限：</span>
+      <select id="ageFilter">
+        <option value="all">全て表示</option>
+        <option value="general">全年齢のみ</option>
+        <option value="r18">R-18のみ</option>
+      </select>
+    </label>
+    <label>
+      <input type="checkbox" id="skipUnavailable" checked>
+      削除済み・非公開を除く（自動リトライ）
+    </label>
+  </div>
+  <p class="note">
+    ※ フィルター機能はPixiv APIの公開情報を使用しています。ログイン状態によっては
+    R-18作品が表示されない場合があります。
+  </p>
+
   <button id="go" type="button">ランダムに開く</button>
   <p id="status"></p>
 
   <script>
     const MAX_ID = 152520933;
-    function getRandomArtworkUrl() {
-      const id = Math.floor(Math.random() * MAX_ID) + 1;
+    const MAX_RETRY = 20;
+
+    function getRandomId() {
+      return Math.floor(Math.random() * MAX_ID) + 1;
+    }
+
+    function getArtworkUrl(id) {
       return `https://www.pixiv.net/artworks/${id}`;
     }
 
+    /**
+     * Pixivの公開APIで作品情報を取得する。
+     * CORSの制約でクライアント側から直接は叩けないため、
+     * allorigins.win プロキシ経由でリクエストする。
+     * 返り値: { ok: boolean, x_restrict: number|null }
+     *   x_restrict: 0=全年齢, 1=R-18, 2=R-18G
+     */
+    const WORKER_URL = 'https://pixiv-proxy.tarikomo289.workers.dev';
+
+    async function fetchArtworkInfo(id) {
+      try {
+        const res = await fetch(`${WORKER_URL}?id=${id}`, { signal: AbortSignal.timeout(8000) });
+        if (!res.ok) return { ok: false, x_restrict: null };
+        const data = await res.json();
+        if (data.error || !data.body) return { ok: false, x_restrict: null };
+        return { ok: true, x_restrict: data.body.xRestrict ?? 0 };
+      } catch {
+        return { ok: false, x_restrict: null };
+      }
+    }
+
+    async function findArtwork(ageFilter, skipUnavailable) {
+      const btn = document.getElementById('go');
+      const statusEl = document.getElementById('status');
+
+      btn.disabled = true;
+
+      // フィルターなし・チェックなしの場合は即開く
+      if (ageFilter === 'all' && !skipUnavailable) {
+        const id = getRandomId();
+        const url = getArtworkUrl(id);
+        statusEl.innerHTML =
+          `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+        btn.disabled = false;
+        return;
+      }
+
+      statusEl.innerHTML = '<span class="retry-info">🔍 条件に合う作品を検索中...</span>';
+
+      for (let attempt = 1; attempt <= MAX_RETRY; attempt++) {
+        const id = getRandomId();
+        statusEl.innerHTML =
+          `<span class="retry-info">🔍 試行 ${attempt}/${MAX_RETRY}：ID ${id} を確認中...</span>`;
+
+        const info = await fetchArtworkInfo(id);
+
+        // 削除済み・非公開チェック
+        if (skipUnavailable && !info.ok) {
+          continue;
+        }
+
+        // 年齢フィルターチェック
+        if (info.ok) {
+          if (ageFilter === 'general' && info.x_restrict !== 0) continue;
+          if (ageFilter === 'r18' && info.x_restrict === 0) continue;
+        } else if (ageFilter !== 'all') {
+          // APIが取れない場合は年齢フィルターを適用できないのでスキップ
+          continue;
+        }
+
+        // 条件クリア
+        const url = getArtworkUrl(id);
+        const label = info.x_restrict === 1 ? ' [R-18]'
+                    : info.x_restrict === 2 ? ' [R-18G]'
+                    : info.ok ? ' [全年齢]' : '';
+        statusEl.innerHTML =
+          `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>${label}`;
+        window.open(url, '_blank', 'noopener,noreferrer');
+        btn.disabled = false;
+        return;
+      }
+
+      // MAX_RETRY回試しても見つからなかった場合
+      statusEl.innerHTML =
+        `<span style="color:#cc0000;">⚠ ${MAX_RETRY}回試しましたが条件に合う作品が見つかりませんでした。<br>` +
+        `フィルターを緩めるか、再度お試しください。</span>`;
+      btn.disabled = false;
+    }
+
     document.getElementById('go').addEventListener('click', () => {
-      const url = getRandomArtworkUrl();
-      document.getElementById('status').innerHTML =
-        `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-      window.open(url, '_blank', 'noopener,noreferrer');
+      const ageFilter = document.getElementById('ageFilter').value;
+      const skipUnavailable = document.getElementById('skipUnavailable').checked;
+      findArtwork(ageFilter, skipUnavailable);
     });
   </script>
 </body>
