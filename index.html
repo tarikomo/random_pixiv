@@ -14,6 +14,9 @@
     .section {
       margin-top: 1.5rem;
     }
+    .section p {
+      margin: 0.5rem 0;
+    }
     button {
       font-family: inherit;
       font-size: 1rem;
@@ -47,147 +50,148 @@
 <body>
   <h1>Random Pixiv</h1>
 
-  <div class="section">
+  <div class="section" data-type="illust">
     <h2>イラスト (Artwork)</h2>
-    <p>1〜152556704 の中からランダムな作品IDへ移動します。</p>
+    <p>1〜<span class="max"></span> の中からランダムな作品IDへ移動します。</p>
     <p>
       <label>
         年齢制限：
-        <select id="age-filter">
+        <select class="age-filter">
           <option value="all">全て表示</option>
           <option value="general">全年齢のみ</option>
           <option value="r18">R-18のみ</option>
         </select>
       </label>
     </p>
-    <p>
-      <label>
-        <input type="checkbox" id="skip-deleted">
-        削除済み・非公開を除く
-      </label>
-    </p>
-    <button id="go-artwork" type="button">イラストをランダムに開く</button>
+    <p><label><input type="checkbox" class="skip-deleted"> 削除済み・非公開を除く</label></p>
+    <p><label><input type="checkbox" class="skip-ai"> AI生成作品を除く</label></p>
+    <button class="go" type="button">イラストをランダムに開く</button>
   </div>
 
-  <div class="section">
+  <div class="section" data-type="novel">
     <h2>小説 (Novel)</h2>
-    <p>1〜27437698 の中からランダムな小説IDへ移動します。</p>
-    <button id="go-novel" type="button">小説をランダムに開く</button>
+    <p>1〜<span class="max"></span> の中からランダムな小説IDへ移動します。</p>
+    <p>
+      <label>
+        年齢制限：
+        <select class="age-filter">
+          <option value="all">全て表示</option>
+          <option value="general">全年齢のみ</option>
+          <option value="r18">R-18のみ</option>
+        </select>
+      </label>
+    </p>
+    <p><label><input type="checkbox" class="skip-deleted"> 削除済み・非公開を除く</label></p>
+    <p><label><input type="checkbox" class="skip-ai"> AI生成作品を除く</label></p>
+    <button class="go" type="button">小説をランダムに開く</button>
   </div>
 
   <p id="status"></p>
 
   <script>
-    const MAX_ARTWORK_ID = 152556704;
-    const MAX_NOVEL_ID = 27437698;
+    const MAX_ID = {
+      illust: 152556704,
+      novel: 27437698,
+    };
+    const API_URL = 'https://random-pixiv-api.vercel.app/api/batch';
+    const SHARDS = 5;
 
-    function getRandomId(max) {
-      return Math.floor(Math.random() * max) + 1;
+    const statusEl = document.getElementById('status');
+
+    function workUrl(type, id) {
+      return type === 'novel'
+        ? `https://www.pixiv.net/novel/show.php?id=${id}`
+        : `https://www.pixiv.net/artworks/${id}`;
     }
 
-    function openRandomUrl(url) {
-      document.getElementById('status').innerHTML =
+    function showLink(url) {
+      statusEl.innerHTML =
         `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-      window.open(url, '_blank', 'noopener,noreferrer');
     }
 
-    // Pixiv公式の埋め込み画像。公開中の全年齢作品なら読み込める（削除済み・非公開・R-18は404）
-    function isAllAgesArtwork(id) {
-      return new Promise((resolve) => {
-        const img = new Image();
-        const timer = setTimeout(() => { img.src = ''; resolve(false); }, 8000);
-        img.onload = () => { clearTimeout(timer); resolve(true); };
-        img.onerror = () => { clearTimeout(timer); resolve(false); };
-        img.src = `https://embed.pixiv.net/decorate.php?illust_id=${id}`;
-      });
+    function pickRandom(list) {
+      return list[Math.floor(Math.random() * list.length)];
     }
 
-    // 外部サービス pixiv.cat で作品が存在するか確認する（R-18含む。削除済み・非公開は404）
-    // 複数ページ作品は ID.jpg がリダイレクトになりブラウザで読めないので ID-1.jpg も試す
-    async function headOk(url) {
-      try {
-        const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
-        return res.ok;
-      } catch {
-        return false;
+    function matches(item, filter) {
+      if (filter.age === 'general' && item.x !== 0) return false;
+      if (filter.age === 'r18' && item.x === 0) return false;
+      if (filter.skipAi && item.ai) return false;
+      return true;
+    }
+
+    // 確認済みの作品リストを、ばらばらの順番で取りに行き、条件に合う作品を探す
+    async function findWork(type, filter) {
+      const shards = Array.from({ length: SHARDS }, (_, i) => i).sort(() => Math.random() - 0.5);
+      let apiFailed = 0;
+      for (const [n, shard] of shards.entries()) {
+        statusEl.textContent = `探しています…（${n + 1}/${SHARDS}）`;
+        try {
+          const res = await fetch(`${API_URL}?type=${type}&max=${MAX_ID[type]}&shard=${shard}`);
+          if (!res.ok) { apiFailed++; continue; }
+          const data = await res.json();
+          const hits = data.items.filter((item) => matches(item, filter));
+          if (hits.length > 0) return { id: pickRandom(hits).id };
+        } catch {
+          apiFailed++;
+        }
       }
-    }
-    async function artworkExists(id) {
-      return (await headOk(`https://pixiv.cat/${id}.jpg`)) ||
-             (await headOk(`https://pixiv.cat/${id}-1.jpg`));
+      return { id: null, apiFailed: apiFailed === SHARDS };
     }
 
-    async function matchesFilter(id, ageFilter) {
-      if (ageFilter === 'general') return isAllAgesArtwork(id);
-      if (ageFilter === 'r18') {
-        // 存在するのに公式埋め込みが出ない = R-18
-        if (await isAllAgesArtwork(id)) return false;
-        return artworkExists(id);
-      }
-      return artworkExists(id);
-    }
+    for (const section of document.querySelectorAll('.section')) {
+      const type = section.dataset.type;
+      const ageSelect = section.querySelector('.age-filter');
+      const skipDeleted = section.querySelector('.skip-deleted');
+      const skipAi = section.querySelector('.skip-ai');
+      const button = section.querySelector('.go');
+      section.querySelector('.max').textContent = MAX_ID[type];
 
-    const BATCH_SIZE = 5;
-    const MAX_TRIES = 50;
+      // 年齢制限やAI除外で絞る場合は、削除済みも必ず除かれるのでチェックを固定する
+      const syncCheckbox = () => {
+        const filtered = ageSelect.value !== 'all' || skipAi.checked;
+        skipDeleted.disabled = filtered;
+        if (filtered) skipDeleted.checked = true;
+      };
+      ageSelect.addEventListener('change', syncCheckbox);
+      skipAi.addEventListener('change', syncCheckbox);
 
-    async function findArtwork(ageFilter, statusEl) {
-      for (let tried = 0; tried < MAX_TRIES; tried += BATCH_SIZE) {
-        statusEl.textContent = `探しています…（${tried}/${MAX_TRIES}件確認済み）`;
-        const ids = Array.from({ length: BATCH_SIZE }, () => getRandomId(MAX_ARTWORK_ID));
-        const results = await Promise.all(ids.map((id) => matchesFilter(id, ageFilter)));
-        const hit = ids.find((_, i) => results[i]);
-        if (hit) return hit;
-      }
-      return null;
-    }
+      button.addEventListener('click', async () => {
+        const filter = { age: ageSelect.value, skipAi: skipAi.checked };
 
-    // 年齢制限で絞る場合は削除済みも必ず除かれるので、チェックボックスを固定する
-    const ageSelect = document.getElementById('age-filter');
-    const skipDeleted = document.getElementById('skip-deleted');
-    ageSelect.addEventListener('change', () => {
-      const filtered = ageSelect.value !== 'all';
-      skipDeleted.disabled = filtered;
-      if (filtered) skipDeleted.checked = true;
-    });
-
-    const artworkBtn = document.getElementById('go-artwork');
-    artworkBtn.addEventListener('click', async () => {
-      const ageFilter = ageSelect.value;
-      if (ageFilter === 'all' && !skipDeleted.checked) {
-        const id = getRandomId(MAX_ARTWORK_ID);
-        openRandomUrl(`https://www.pixiv.net/artworks/${id}`);
-        return;
-      }
-
-      // 確認に時間がかかるとポップアップがブロックされるので、先に空のタブを開いておく
-      const tab = window.open('', '_blank');
-      if (tab) {
-        tab.opener = null;
-        tab.document.title = '探しています…';
-        tab.document.body.textContent = '条件に合う作品を探しています…';
-      }
-      const statusEl = document.getElementById('status');
-      artworkBtn.disabled = true;
-      try {
-        const id = await findArtwork(ageFilter, statusEl);
-        if (!id) {
-          if (tab) tab.close();
-          statusEl.textContent = `${MAX_TRIES}件確認しましたが見つかりませんでした。もう一度押してください。`;
+        // 何も絞らない場合は、今までどおり完全ランダム
+        if (filter.age === 'all' && !filter.skipAi && !skipDeleted.checked) {
+          const url = workUrl(type, Math.floor(Math.random() * MAX_ID[type]) + 1);
+          showLink(url);
+          window.open(url, '_blank', 'noopener,noreferrer');
           return;
         }
-        const url = `https://www.pixiv.net/artworks/${id}`;
-        statusEl.innerHTML =
-          `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
-        if (tab) tab.location.href = url;
-      } finally {
-        artworkBtn.disabled = false;
-      }
-    });
 
-    document.getElementById('go-novel').addEventListener('click', () => {
-      const id = getRandomId(MAX_NOVEL_ID);
-      openRandomUrl(`https://www.pixiv.net/novel/show.php?id=${id}`);
-    });
+        // 確認に時間がかかるとポップアップがブロックされるので、先に空のタブを開いておく
+        const tab = window.open('', '_blank');
+        if (tab) {
+          tab.opener = null;
+          tab.document.title = '探しています…';
+          tab.document.body.textContent = '条件に合う作品を探しています…';
+        }
+        button.disabled = true;
+        try {
+          const result = await findWork(type, filter);
+          if (!result.id) {
+            if (tab) tab.close();
+            statusEl.textContent = result.apiFailed
+              ? '作品情報を取得できませんでした。少し時間をおいてもう一度押してください。'
+              : '条件に合う作品が見つかりませんでした。もう一度押してください。';
+            return;
+          }
+          const url = workUrl(type, result.id);
+          showLink(url);
+          if (tab) tab.location.href = url;
+        } finally {
+          button.disabled = false;
+        }
+      });
+    }
   </script>
 </body>
 </html>
