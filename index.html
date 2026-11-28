@@ -31,6 +31,14 @@
       opacity: 0.5;
       cursor: wait;
     }
+    select {
+      font-family: inherit;
+      font-size: 1rem;
+      padding: 0.2rem 0.4rem;
+      background: #ffffff;
+      color: #000000;
+      border: 2px solid #000000;
+    }
     a {
       color: #0000ee;
     }
@@ -44,8 +52,18 @@
     <p>1〜152556704 の中からランダムな作品IDへ移動します。</p>
     <p>
       <label>
-        <input type="checkbox" id="only-public">
-        公開中の全年齢作品のみ（削除済み・非公開・R-18を除く）
+        年齢制限：
+        <select id="age-filter">
+          <option value="all">全て表示</option>
+          <option value="general">全年齢のみ</option>
+          <option value="r18">R-18のみ</option>
+        </select>
+      </label>
+    </p>
+    <p>
+      <label>
+        <input type="checkbox" id="skip-deleted">
+        削除済み・非公開を除く
       </label>
     </p>
     <button id="go-artwork" type="button">イラストをランダムに開く</button>
@@ -73,8 +91,8 @@
       window.open(url, '_blank', 'noopener,noreferrer');
     }
 
-    // 埋め込み画像が読み込めれば「公開中の全年齢作品」、404なら削除済み・非公開・R-18
-    function isPublicArtwork(id) {
+    // Pixiv公式の埋め込み画像。公開中の全年齢作品なら読み込める（削除済み・非公開・R-18は404）
+    function isAllAgesArtwork(id) {
       return new Promise((resolve) => {
         const img = new Image();
         const timer = setTimeout(() => { img.src = ''; resolve(false); }, 8000);
@@ -84,23 +102,58 @@
       });
     }
 
+    // 外部サービス pixiv.cat で作品が存在するか確認する（R-18含む。削除済み・非公開は404）
+    // 複数ページ作品は ID.jpg がリダイレクトになりブラウザで読めないので ID-1.jpg も試す
+    async function headOk(url) {
+      try {
+        const res = await fetch(url, { method: 'HEAD', signal: AbortSignal.timeout(8000) });
+        return res.ok;
+      } catch {
+        return false;
+      }
+    }
+    async function artworkExists(id) {
+      return (await headOk(`https://pixiv.cat/${id}.jpg`)) ||
+             (await headOk(`https://pixiv.cat/${id}-1.jpg`));
+    }
+
+    async function matchesFilter(id, ageFilter) {
+      if (ageFilter === 'general') return isAllAgesArtwork(id);
+      if (ageFilter === 'r18') {
+        // 存在するのに公式埋め込みが出ない = R-18
+        if (await isAllAgesArtwork(id)) return false;
+        return artworkExists(id);
+      }
+      return artworkExists(id);
+    }
+
     const BATCH_SIZE = 5;
     const MAX_TRIES = 50;
 
-    async function findPublicArtwork(statusEl) {
+    async function findArtwork(ageFilter, statusEl) {
       for (let tried = 0; tried < MAX_TRIES; tried += BATCH_SIZE) {
         statusEl.textContent = `探しています…（${tried}/${MAX_TRIES}件確認済み）`;
         const ids = Array.from({ length: BATCH_SIZE }, () => getRandomId(MAX_ARTWORK_ID));
-        const results = await Promise.all(ids.map(isPublicArtwork));
+        const results = await Promise.all(ids.map((id) => matchesFilter(id, ageFilter)));
         const hit = ids.find((_, i) => results[i]);
         if (hit) return hit;
       }
       return null;
     }
 
+    // 年齢制限で絞る場合は削除済みも必ず除かれるので、チェックボックスを固定する
+    const ageSelect = document.getElementById('age-filter');
+    const skipDeleted = document.getElementById('skip-deleted');
+    ageSelect.addEventListener('change', () => {
+      const filtered = ageSelect.value !== 'all';
+      skipDeleted.disabled = filtered;
+      if (filtered) skipDeleted.checked = true;
+    });
+
     const artworkBtn = document.getElementById('go-artwork');
     artworkBtn.addEventListener('click', async () => {
-      if (!document.getElementById('only-public').checked) {
+      const ageFilter = ageSelect.value;
+      if (ageFilter === 'all' && !skipDeleted.checked) {
         const id = getRandomId(MAX_ARTWORK_ID);
         openRandomUrl(`https://www.pixiv.net/artworks/${id}`);
         return;
@@ -111,12 +164,12 @@
       if (tab) {
         tab.opener = null;
         tab.document.title = '探しています…';
-        tab.document.body.textContent = '公開中の作品を探しています…';
+        tab.document.body.textContent = '条件に合う作品を探しています…';
       }
       const statusEl = document.getElementById('status');
       artworkBtn.disabled = true;
       try {
-        const id = await findPublicArtwork(statusEl);
+        const id = await findArtwork(ageFilter, statusEl);
         if (!id) {
           if (tab) tab.close();
           statusEl.textContent = `${MAX_TRIES}件確認しましたが見つかりませんでした。もう一度押してください。`;
