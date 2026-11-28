@@ -27,6 +27,10 @@
       background: #0000ff;
       color: #ffffff;
     }
+    button:disabled {
+      opacity: 0.5;
+      cursor: wait;
+    }
     a {
       color: #0000ee;
     }
@@ -38,6 +42,12 @@
   <div class="section">
     <h2>イラスト (Artwork)</h2>
     <p>1〜152556704 の中からランダムな作品IDへ移動します。</p>
+    <p>
+      <label>
+        <input type="checkbox" id="only-public">
+        公開中の全年齢作品のみ（削除済み・非公開・R-18を除く）
+      </label>
+    </p>
     <button id="go-artwork" type="button">イラストをランダムに開く</button>
   </div>
 
@@ -63,9 +73,62 @@
       window.open(url, '_blank', 'noopener,noreferrer');
     }
 
-    document.getElementById('go-artwork').addEventListener('click', () => {
-      const id = getRandomId(MAX_ARTWORK_ID);
-      openRandomUrl(`https://www.pixiv.net/artworks/${id}`);
+    // 埋め込み画像が読み込めれば「公開中の全年齢作品」、404なら削除済み・非公開・R-18
+    function isPublicArtwork(id) {
+      return new Promise((resolve) => {
+        const img = new Image();
+        const timer = setTimeout(() => { img.src = ''; resolve(false); }, 8000);
+        img.onload = () => { clearTimeout(timer); resolve(true); };
+        img.onerror = () => { clearTimeout(timer); resolve(false); };
+        img.src = `https://embed.pixiv.net/decorate.php?illust_id=${id}`;
+      });
+    }
+
+    const BATCH_SIZE = 5;
+    const MAX_TRIES = 50;
+
+    async function findPublicArtwork(statusEl) {
+      for (let tried = 0; tried < MAX_TRIES; tried += BATCH_SIZE) {
+        statusEl.textContent = `探しています…（${tried}/${MAX_TRIES}件確認済み）`;
+        const ids = Array.from({ length: BATCH_SIZE }, () => getRandomId(MAX_ARTWORK_ID));
+        const results = await Promise.all(ids.map(isPublicArtwork));
+        const hit = ids.find((_, i) => results[i]);
+        if (hit) return hit;
+      }
+      return null;
+    }
+
+    const artworkBtn = document.getElementById('go-artwork');
+    artworkBtn.addEventListener('click', async () => {
+      if (!document.getElementById('only-public').checked) {
+        const id = getRandomId(MAX_ARTWORK_ID);
+        openRandomUrl(`https://www.pixiv.net/artworks/${id}`);
+        return;
+      }
+
+      // 確認に時間がかかるとポップアップがブロックされるので、先に空のタブを開いておく
+      const tab = window.open('', '_blank');
+      if (tab) {
+        tab.opener = null;
+        tab.document.title = '探しています…';
+        tab.document.body.textContent = '公開中の作品を探しています…';
+      }
+      const statusEl = document.getElementById('status');
+      artworkBtn.disabled = true;
+      try {
+        const id = await findPublicArtwork(statusEl);
+        if (!id) {
+          if (tab) tab.close();
+          statusEl.textContent = `${MAX_TRIES}件確認しましたが見つかりませんでした。もう一度押してください。`;
+          return;
+        }
+        const url = `https://www.pixiv.net/artworks/${id}`;
+        statusEl.innerHTML =
+          `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
+        if (tab) tab.location.href = url;
+      } finally {
+        artworkBtn.disabled = false;
+      }
     });
 
     document.getElementById('go-novel').addEventListener('click', () => {
