@@ -3,13 +3,16 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Random Pixiv Artwork</title>
+  <title>Random Pixiv</title>
   <style>
     body {
       font-family: monospace, sans-serif;
       background: #eeeeee;
       color: #000000;
       margin: 2rem;
+    }
+    .section {
+      margin-top: 1.5rem;
     }
     button {
       font-family: inherit;
@@ -30,23 +33,44 @@
   </style>
 </head>
 <body>
-  <h1>Random Pixiv Artwork</h1>
-  <p>1〜152556704 の中からランダムな作品IDへ移動します。</p>
-  <button id="go" type="button">ランダムに開く</button>
+  <h1>Random Pixiv</h1>
+
+  <div class="section">
+    <h2>イラスト (Artwork)</h2>
+    <p>1〜152556704 の中からランダムな作品IDへ移動します。</p>
+    <button id="go-artwork" type="button">イラストをランダムに開く</button>
+  </div>
+
+  <div class="section">
+    <h2>小説 (Novel)</h2>
+    <p>1〜27437698 の中からランダムな小説IDへ移動します。</p>
+    <button id="go-novel" type="button">小説をランダムに開く</button>
+  </div>
+
   <p id="status"></p>
 
   <script>
-    const MAX_ID = 152556704;
-    function getRandomArtworkUrl() {
-      const id = Math.floor(Math.random() * MAX_ID) + 1;
-      return `https://www.pixiv.net/artworks/${id}`;
+    const MAX_ARTWORK_ID = 152556704;
+    const MAX_NOVEL_ID = 27437698;
+
+    function getRandomId(max) {
+      return Math.floor(Math.random() * max) + 1;
     }
 
-    document.getElementById('go').addEventListener('click', () => {
-      const url = getRandomArtworkUrl();
+    function openRandomUrl(url) {
       document.getElementById('status').innerHTML =
         `遷移先: <a href="${url}" target="_blank" rel="noopener noreferrer">${url}</a>`;
       window.open(url, '_blank', 'noopener,noreferrer');
+    }
+
+    document.getElementById('go-artwork').addEventListener('click', () => {
+      const id = getRandomId(MAX_ARTWORK_ID);
+      openRandomUrl(`https://www.pixiv.net/artworks/${id}`);
+    });
+
+    document.getElementById('go-novel').addEventListener('click', () => {
+      const id = getRandomId(MAX_NOVEL_ID);
+      openRandomUrl(`https://www.pixiv.net/novel/show.php?id=${id}`);
     });
   </script>
 </body>
